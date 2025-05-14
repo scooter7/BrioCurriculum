@@ -1,8 +1,14 @@
 // File: prisma/schema.prisma
+// This version is for your Vercel deployment using PostgreSQL
+// and includes all necessary fields for analysis status.
+// It uses a simplified datasource block as per your preference for Vercel.
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL") // This will be your Prisma Accelerate URL in Vercel
+  url      = env("DATABASE_URL") // Vercel will set this to your Vercel Postgres URL (pooled or Accelerate)
+                               // Prisma CLI will pick up DIRECT_URL and SHADOW_DATABASE_URL 
+                               // from Vercel's environment for 'prisma migrate deploy' if they are set there,
+                               // even if not listed here, when DATABASE_URL is an Accelerate URL.
 }
 
 generator client {
@@ -25,9 +31,16 @@ model Curriculum {
   originalFileName   String
   schoolTag          String?
   filePath           String?   // URL from Vercel Blob
-  analysisResults    Json?     // Use Json type for PostgreSQL (maps to JSONB)
+  
+  analysisResults    Json?     // Stores the successful analysis output (PostgreSQL JSONB)
+  analysisStatus     String?   // e.g., "NOT_STARTED", "PROCESSING", "COMPLETED", "FAILED"
+  analysisError      String?   // Stores error message if analysis failed
+  lastAnalysisTriggeredAt DateTime? // When was analysis last started/triggered
+  lastAnalysisCompletedAt DateTime? // When did it last complete/fail
+
   uploadedAt         DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+
   userId             String?
   user               User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   actionItems        ActionItem[]
