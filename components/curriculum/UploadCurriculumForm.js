@@ -18,7 +18,7 @@ const UploadCurriculumForm = ({ onSubmit, onCancel, isLoading }) => {
   const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (file) {
-      console.log("[UploadCurriculumForm] File selected:", file, "Type:", typeof file, "Instance of File:", file instanceof File); // DEBUG
+      console.log("[UploadCurriculumForm] File selected:", file.name, "Type:", file.type, "Size:", file.size, "Is File object:", file instanceof File);
       setSelectedFile(file);
       setFileNameDisplay(file.name);
       setError('');
@@ -44,19 +44,19 @@ const UploadCurriculumForm = ({ onSubmit, onCancel, isLoading }) => {
     formData.append('name', name);
     formData.append('schoolTag', schoolTag);
     
-    // Ensure selectedFile is indeed a File object before appending
     if (selectedFile instanceof File) {
-        formData.append('curriculumFile', selectedFile, selectedFile.name); // Third argument is optional filename
+        // The key 'curriculumFile' here MUST match what formidable expects on the backend.
+        // The third argument (filename) is optional but good practice.
+        formData.append('curriculumFile', selectedFile, selectedFile.name);
     } else {
-        console.error("[UploadCurriculumForm] selectedFile is not a File object:", selectedFile);
+        console.error("[UploadCurriculumForm] selectedFile is not a valid File object:", selectedFile);
         setError("Invalid file selected. Please try again.");
         return;
     }
 
-
     console.log("[UploadCurriculumForm] Submitting FormData. FormData entries:");
-    for (let [key, value] of formData.entries()) { // DEBUG FormData content
-        console.log(`  ${key}:`, value);
+    for (let pair of formData.entries()) {
+        console.log(`  ${pair[0]}:`, pair[1] instanceof File ? `File - ${pair[1].name}, ${pair[1].size} bytes` : pair[1]);
     }
     onSubmit(formData);
   };
@@ -69,7 +69,7 @@ const UploadCurriculumForm = ({ onSubmit, onCancel, isLoading }) => {
         <input
           type="text"
           id="curriculumName"
-          name="name"
+          name="name" // Correct for formidable fields
           className="input-field"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -82,7 +82,7 @@ const UploadCurriculumForm = ({ onSubmit, onCancel, isLoading }) => {
         <input
           type="text"
           id="schoolTag"
-          name="schoolTag"
+          name="schoolTag" // Correct for formidable fields
           className="input-field"
           value={schoolTag}
           onChange={(e) => setSchoolTag(e.target.value)}
@@ -94,7 +94,7 @@ const UploadCurriculumForm = ({ onSubmit, onCancel, isLoading }) => {
         <input
           type="file"
           id="curriculumFile"
-          name="curriculumFile" // This name must match what formidable expects
+          name="curriculumFile" // THIS NAME IS CRITICAL for formidable on the backend
           className="input-field"
           onChange={handleFileChange}
           accept=".pdf,.doc,.docx,.xls,.xlsx,.txt"

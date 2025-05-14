@@ -4,25 +4,38 @@ import React, { useState, useEffect, useCallback } from 'react';
 import DataVisualizationDashboard from '../components/dashboard/DataVisualizationDashboard';
 import AiChatInterface from '../components/chat/AiChatInterface';
 import MainLayout from '../components/layout/MainLayout';
-import prisma from '../lib/prisma'; // For GSSP
+import prisma from '../lib/prisma'; // For getServerSideProps
 
 export async function getServerSideProps(context) {
+  console.log("[GSSP] Fetching initial curricula list...");
   let curriculaList = [];
   let curriculaListError = null;
   try {
     curriculaList = await prisma.curriculum.findMany({
       orderBy: { uploadedAt: 'desc' },
-      select: { id: true, name: true, schoolTag: true, uploadedAt: true, updatedAt: true }
+      select: { 
+        id: true, 
+        name: true, 
+        schoolTag: true, 
+        uploadedAt: true, 
+        updatedAt: true,
+        // analysisResults is Json type in schema for PG, Prisma client handles it as object
+        // No need to select it here if we fetch full details on client,
+        // but if selected, it's already an object or null.
+        // For the sidebar list, we might not need full analysisResults.
+      }
     });
     // Serialize Date objects
     curriculaList = curriculaList.map(c => ({
       ...c,
       uploadedAt: c.uploadedAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),
+      // analysisResults: c.analysisResults || {}, // Ensure it's an object if selected
     }));
+    console.log(`[GSSP] Successfully fetched ${curriculaList.length} curricula.`);
   } catch (error) {
-    console.error("GSSP - Failed to fetch curricula list:", error);
-    curriculaListError = "Unable to fetch curricula list from server.";
+    console.error("[GSSP] Failed to fetch curricula list:", error.message, error.stack);
+    curriculaListError = "Unable to fetch curricula list from server. " + error.message;
   }
   return { props: { initialCurriculaList: curriculaList, initialCurriculaListError: curriculaListError } };
 }
@@ -43,41 +56,10 @@ export default function HomePage({ initialCurriculaList, initialCurriculaListErr
   const [isLoadingActionItems, setIsLoadingActionItems] = useState(false);
   const [actionItemsError, setActionItemsError] = useState(null);
 
-  // Fetch Curriculum Details (and subsequently action items)
-  const fetchCurriculumDetails = useCallback(async (curriculumId) => {
-    if (!curriculumId) {
-      console.log("[HomePage] fetchCurriculumDetails called with no ID, clearing details.");
-      setSelectedCurriculumDetails(null);
-      setActionItems([]);
-      return;
-    }
-    console.log(`[HomePage] fetchCurriculumDetails called for ID: ${curriculumId}`);
-    setIsLoadingDetails(true);
-    setDetailsError(null);
-    try {
-      const response = await fetch(`/api/curricula/${curriculumId}`);
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({error: "Failed to parse error from curriculum details API"}));
-        throw new Error(errorData.error || `Failed to fetch details: ${response.status}`);
-      }
-      const data = await response.json();
-      setSelectedCurriculumDetails(data);
-      // eslint-disable-next-line no-use-before-define
-      fetchActionItemsForCurriculum(curriculumId); // Fetch action items after curriculum details are loaded
-    } catch (error) {
-      console.error(`[HomePage] Error fetching details for curriculum ${curriculumId}:`, error);
-      setDetailsError(error.message);
-      setSelectedCurriculumDetails(null);
-      setActionItems([]);
-    } finally {
-      setIsLoadingDetails(false);
-    }
-  }, []); // Removed fetchActionItemsForCurriculum from deps, called explicitly
-
   // Fetch Action Items for a specific curriculum
   const fetchActionItemsForCurriculum = useCallback(async (curriculumId) => {
     if (!curriculumId) {
-      console.log("[HomePage] fetchActionItemsForCurriculum called with no curriculumId.");
+      console.log("[HomePage] fetchActionItemsForCurriculum called with no curriculumId, clearing action items.");
       setActionItems([]);
       return;
     }
@@ -101,6 +83,36 @@ export default function HomePage({ initialCurriculaList, initialCurriculaListErr
       setIsLoadingActionItems(false);
     }
   }, []);
+
+  // Fetch Curriculum Details (and subsequently action items)
+  const fetchCurriculumDetails = useCallback(async (curriculumId) => {
+    if (!curriculumId) {
+      console.log("[HomePage] fetchCurriculumDetails called with no ID, clearing details.");
+      setSelectedCurriculumDetails(null);
+      setActionItems([]); // Clear action items if no curriculum is selected
+      return;
+    }
+    console.log(`[HomePage] fetchCurriculumDetails called for ID: ${curriculumId}`);
+    setIsLoadingDetails(true);
+    setDetailsError(null);
+    try {
+      const response = await fetch(`/api/curricula/${curriculumId}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({error: "Failed to parse error from curriculum details API"}));
+        throw new Error(errorData.error || `Failed to fetch details: ${response.status}`);
+      }
+      const data = await response.json();
+      setSelectedCurriculumDetails(data);
+      fetchActionItemsForCurriculum(curriculumId); // Fetch action items after curriculum details are loaded
+    } catch (error) {
+      console.error(`[HomePage] Error fetching details for curriculum ${curriculumId}:`, error);
+      setDetailsError(error.message);
+      setSelectedCurriculumDetails(null);
+      setActionItems([]);
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  }, [fetchActionItemsForCurriculum]); // Added fetchActionItemsForCurriculum to dependency array
 
   // Initial load effect
   useEffect(() => {
@@ -128,41 +140,44 @@ export default function HomePage({ initialCurriculaList, initialCurriculaListErr
   // Handler for when analysis is complete
   const handleAnalysisCompletion = (updatedCurriculumWithAnalysis) => {
     console.log("[HomePage] handleAnalysisCompletion called with:", updatedCurriculumWithAnalysis);
-    setSelectedCurriculumDetails(updatedCurriculumWithAnalysis);
+    setSelectedCurriculumDetails(updatedCurriculumWithAnalysis); // Update the detailed view
+    // Update the summary in the sidebar list
     setCurriculaForSidebar(prevList =>
       prevList.map(c =>
         c.id === updatedCurriculumWithAnalysis.id
-          ? { ...c, ...updatedCurriculumWithAnalysis, name: updatedCurriculumWithAnalysis.name, schoolTag: updatedCurriculumWithAnalysis.schoolTag }
+          ? { ...c, 
+              name: updatedCurriculumWithAnalysis.name, 
+              schoolTag: updatedCurriculumWithAnalysis.schoolTag,
+              updatedAt: updatedCurriculumWithAnalysis.updatedAt // Keep basic info updated
+            }
           : c
       )
     );
   };
 
-  // Handler for creating a new curriculum
-  const handleCreateNewCurriculum = async (newCurriculumData) => {
-    console.log("[HomePage] handleCreateNewCurriculum called with data:", newCurriculumData);
-    const dataToSubmit = {
-      name: newCurriculumData.name || `New Curriculum ${new Date().toLocaleTimeString()}`,
-      originalFileName: newCurriculumData.originalFileName || `file_${Date.now()}.pdf`,
-      schoolTag: newCurriculumData.schoolTag || "Default School",
-    };
+  // Handler for creating a new curriculum (expects FormData)
+  const handleCreateNewCurriculum = async (formData) => {
+    console.log("[HomePage] handleCreateNewCurriculum called.");
+    // Logging FormData content is tricky directly, but UploadCurriculumForm logs it before calling this.
     setIsCreatingCurriculum(true);
     try {
       const response = await fetch('/api/curricula', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dataToSubmit),
+        // When sending FormData, DO NOT set 'Content-Type' header manually.
+        // The browser will set it correctly to 'multipart/form-data' with the boundary.
+        body: formData, 
       });
       console.log("[HomePage] Create curriculum API response status:", response.status);
       if (!response.ok) {
-        const errorResult = await response.json().catch(() => ({error: "Failed to parse error from create curriculum API"}));
+        const errorResult = await response.json().catch(() => ({error: `API error ${response.status}: ${response.statusText}`}));
         console.error("[HomePage] Create curriculum API error:", errorResult);
         throw new Error(errorResult.error || "Failed to create curriculum");
       }
       const createdCurriculum = await response.json();
       console.log("[HomePage] Successfully created curriculum:", createdCurriculum);
       setCurriculaForSidebar(prev => [createdCurriculum, ...prev]);
-      handleSelectCurriculum(createdCurriculum.id);
+      handleSelectCurriculum(createdCurriculum.id); // Select and fetch details for the new one
+      // alert("New curriculum created successfully!"); // Consider a less intrusive notification
     } catch (error) {
       console.error("[HomePage] Error in handleCreateNewCurriculum catch block:", error);
       alert(`Error creating curriculum: ${error.message}`);
@@ -183,16 +198,18 @@ export default function HomePage({ initialCurriculaList, initialCurriculaListErr
             method: 'DELETE',
         });
         console.log("[HomePage] Delete curriculum API response status:", response.status);
-        if (!response.ok && response.status !== 204) {
-            const errorData = await response.json().catch(() => ({error: "Failed to parse error from delete curriculum API"}));
+        if (!response.ok && response.status !== 204) { // 204 is success with no content
+            const errorData = await response.json().catch(() => ({error: `API error ${response.status}: ${response.statusText}`}));
             console.error("[HomePage] Delete curriculum API error:", errorData);
             throw new Error(errorData.error || `Failed to delete curriculum. Status: ${response.status}`);
         }
-        setCurriculaForSidebar(prev => prev.filter(c => c.id !== curriculumIdToDelete));
+        
+        const updatedSidebarList = curriculaForSidebar.filter(c => c.id !== curriculumIdToDelete);
+        setCurriculaForSidebar(updatedSidebarList);
+
         if (selectedCurriculumDetails && selectedCurriculumDetails.id === curriculumIdToDelete) {
-            const remainingCurricula = curriculaForSidebar.filter(c => c.id !== curriculumIdToDelete);
-            if (remainingCurricula.length > 0) {
-                handleSelectCurriculum(remainingCurricula[0].id);
+            if (updatedSidebarList.length > 0) {
+                handleSelectCurriculum(updatedSidebarList[0].id);
             } else {
                 setSelectedCurriculumDetails(null);
                 setActionItems([]);
@@ -221,13 +238,13 @@ export default function HomePage({ initialCurriculaList, initialCurriculaListErr
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...actionItemData,
+          ...actionItemData, // title, status, startDate, endDate
           curriculumId: selectedCurriculumDetails.id,
         }),
       });
       console.log("[HomePage] Create action item API response status:", response.status);
       if (!response.ok) {
-        const errorResult = await response.json().catch(() => ({ error: "Failed to parse error from create action item API" }));
+        const errorResult = await response.json().catch(() => ({ error: `API error ${response.status}: ${response.statusText}` }));
         console.error("[HomePage] Create action item API error:", errorResult);
         throw new Error(errorResult.error || "Failed to create action item");
       }
@@ -244,6 +261,7 @@ export default function HomePage({ initialCurriculaList, initialCurriculaListErr
   const handleUpdateActionItem = async (actionItemId, updates) => {
     console.log(`[HomePage] handleUpdateActionItem called for ID: ${actionItemId} with updates:`, updates);
     const originalActionItems = [...actionItems];
+    // Optimistic UI update
     setActionItems(prev =>
       prev.map(item => (item.id === actionItemId ? { ...item, ...updates } : item))
     );
@@ -255,19 +273,20 @@ export default function HomePage({ initialCurriculaList, initialCurriculaListErr
       });
       console.log(`[HomePage] Update action item API response status for ID ${actionItemId}:`, response.status);
       if (!response.ok) {
-        const errorResult = await response.json().catch(() => ({ error: "Failed to parse error from update action item API" }));
+        const errorResult = await response.json().catch(() => ({ error: `API error ${response.status}: ${response.statusText}` }));
         console.error(`[HomePage] Update action item API error for ID ${actionItemId}:`, errorResult);
         throw new Error(errorResult.error || "Failed to update action item");
       }
       const updatedItem = await response.json();
       console.log(`[HomePage] Successfully updated action item ID ${actionItemId}:`, updatedItem);
+      // Update with server response to ensure consistency
       setActionItems(prev =>
         prev.map(item => (item.id === updatedItem.id ? updatedItem : item))
       );
     } catch (error) {
       console.error(`[HomePage] Error in handleUpdateActionItem catch block for ID ${actionItemId}:`, error);
       alert(`Error updating action item: ${error.message}`);
-      setActionItems(originalActionItems);
+      setActionItems(originalActionItems); // Revert on error
     }
   };
 
@@ -276,22 +295,23 @@ export default function HomePage({ initialCurriculaList, initialCurriculaListErr
     console.log(`[HomePage] handleDeleteActionItem called for ID: ${actionItemId}`);
     if (!confirm("Are you sure you want to delete this action item?")) return;
     const originalActionItems = [...actionItems];
-    setActionItems(prev => prev.filter(item => item.id !== actionItemId));
+    setActionItems(prev => prev.filter(item => item.id !== actionItemId)); // Optimistic UI update
     try {
       const response = await fetch(`/api/action-items/${actionItemId}`, {
         method: 'DELETE',
       });
       console.log(`[HomePage] Delete action item API response status for ID ${actionItemId}:`, response.status);
       if (!response.ok && response.status !== 204) {
-        const errorResult = await response.json().catch(() => ({error: "Failed to parse error from delete action item API"}));
+        const errorResult = await response.json().catch(() => ({error: `API error ${response.status}: ${response.statusText}`}));
         console.error(`[HomePage] Delete action item API error for ID ${actionItemId}:`, errorResult);
         throw new Error(errorResult.error || `Failed to delete action item: Status ${response.status}`);
       }
       console.log(`[HomePage] Successfully deleted action item ID ${actionItemId}`);
+      // If successful, UI is already updated.
     } catch (error) {
       console.error(`[HomePage] Error in handleDeleteActionItem catch block for ID ${actionItemId}:`, error);
       alert(`Error deleting action item: ${error.message}`);
-      setActionItems(originalActionItems);
+      setActionItems(originalActionItems); // Revert on error
     }
   };
 
