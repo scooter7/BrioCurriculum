@@ -1,10 +1,8 @@
 // File: prisma/schema.prisma
 
 datasource db {
-  provider          = "postgresql" // For Vercel Postgres
-  url               = env("DATABASE_URL") // Vercel provides this (pooled)
-  directUrl         = env("DIRECT_URL")   // Vercel provides this (non-pooled, for migrations)
-  shadowDatabaseUrl = env("SHADOW_DATABASE_URL") // Vercel provides this (for migrations)
+  provider = "postgresql"
+  url      = env("DATABASE_URL") // This will be your Prisma Accelerate URL in Vercel
 }
 
 generator client {
