@@ -1,146 +1,148 @@
 // File: pages/api/curricula/[id]/perform-actual-analysis-worker.js
 import prisma from '../../../../lib/prisma';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
-import pdf from 'pdf-parse';
+import pdf from 'pdf-parse'; // Ensure this is pdf-parse, not another 'pdf'
 import mammoth from 'mammoth';
 import fetch from 'node-fetch';
 
 const apiKey = process.env.GEMINI_API_KEY;
 let genAI;
-if (apiKey) {
-  genAI = new GoogleGenerativeAI(apiKey);
-} else {
-  console.error("[Worker] GEMINI_API_KEY is not set. AI analysis will be disabled.");
-}
+if (apiKey) { genAI = new GoogleGenerativeAI(apiKey); }
+else { console.error("[Worker] GEMINI_API_KEY is not set."); }
 
-const generationConfig = {
-  temperature: 0.1,
-  topK: 1,
-  topP: 0.95,
-  maxOutputTokens: 1024, // Keep small for this focused test
-  responseMimeType: "application/json",
-};
-const safetySettings = [ /* ... same ... */ ];
-const USAO_ADMISSIONS_REQUIREMENTS_SIMPLIFIED = {
-  englishUnits: { required: 4, label: "English" },
-  // mathUnits: { required: 3, label: "Mathematics" }, // Further simplify, only one item for now
-};
+const generationConfig = { temperature: 0.1, topK: 1, topP: 0.95, maxOutputTokens: 1024, responseMimeType: "application/json" };
+const safetySettings = [ /* ... */ ];
+const USAO_ADMISSIONS_REQUIREMENTS_SIMPLIFIED = { englishUnits: { required: 4, label: "English" }};
 
-async function callGeminiAndParseJson(promptContent, modelInstance, attempt = 1, maxAttempts = 1) { // MAX 1 ATTEMPT
-  console.log(`[Worker/callGemini] Attempt ${attempt}/${maxAttempts}. Prompt: "${String(promptContent).substring(0, 150)}..."`);
-  let rawTextResponse = "No response received from AI."; // Default for error cases
+async function callGeminiAndParseJson(promptContent, modelInstance, attempt = 1, maxAttempts = 1) {
+  console.log(`[Worker/callGemini] Attempt ${attempt}/${maxAttempts}. Prompt snippet: ${String(promptContent).substring(0,70)}...`);
+  let rawTextResponse = "No response received from AI.";
   try {
     const result = await modelInstance.generateContent(promptContent);
-    const response = result.response;
-    rawTextResponse = response.text();
-    // LOG THE ENTIRE RAW RESPONSE FROM GEMINI
-    console.log(`[Worker/callGemini] RAW GEMINI RESPONSE (Attempt ${attempt}, Length: ${rawTextResponse.length}):\n>>>>>>>>>>>> START OF GEMINI RAW RESPONSE >>>>>>>>>>>>\n${rawTextResponse}\n<<<<<<<<<<<< END OF GEMINI RAW RESPONSE <<<<<<<<<<<<`);
-
+    rawTextResponse = result.response.text(); 
+    console.log(`[Worker/callGemini] RAW GEMINI RESPONSE (Attempt ${attempt}, Length: ${rawTextResponse.length}):\n>>>>>>>>>>>>\n${rawTextResponse}\n<<<<<<<<<<<<`);
     let jsonText = rawTextResponse.trim();
-    // If responseMimeType: "application/json" is working, no further cleaning should be needed.
-    // Add back minimal cleaning if issues persist.
-    // if (jsonText.startsWith("```json")) { /* ... */ } else if (jsonText.startsWith("```")) { /* ... */ }
-    
-    if (!jsonText) {
-        const emptyError = new Error("Cleaned JSON text from Gemini is empty.");
-        emptyError.rawResponse = rawTextResponse;
-        throw emptyError;
-    }
-    
-    const jsonData = JSON.parse(jsonText); // This is where "Unexpected token 'A'" would happen if not JSON
-    console.log("[Worker/callGemini] Successfully parsed JSON from Gemini.");
-    return jsonData;
+    if (jsonText.startsWith("```json")) { jsonText = jsonText.substring(7, jsonText.endsWith("```") ? jsonText.length - 3 : undefined).trim(); }
+    else if (jsonText.startsWith("```")) { jsonText = jsonText.substring(3, jsonText.endsWith("```") ? jsonText.length - 3 : undefined).trim(); }
+    if (!jsonText) throw new Error("Cleaned JSON text is empty.");
+    return JSON.parse(jsonText);
   } catch (error) {
-    console.error(`[Worker/callGemini] ERROR ON ATTEMPT ${attempt}: ${error.message}`);
-    // Raw response was logged above.
-    const enhancedError = new Error(`Failed to get valid JSON from AI (attempt ${attempt}). Last error: ${error.message}.`);
-    enhancedError.rawResponse = rawTextResponse; // Attach raw response to the error
-    throw enhancedError; // Re-throw to be caught by performRealAnalysisLogic
+    console.error(`[Worker/callGemini] JSON PARSING FAILED on attempt ${attempt}: ${error.message}.`);
+    const enhancedError = new Error(`Failed to get valid JSON from AI. Last error: ${error.message}. Raw response logged above.`);
+    enhancedError.rawResponse = rawTextResponse; 
+    throw enhancedError;
   }
 }
 
 async function generateRealAnalysisResults(curriculum, extractedText) {
-  console.log(`[Worker/generateReal] For: ${curriculum?.name}. Text length: ${extractedText?.length || 0}`);
+  console.log(`[Worker/generateReal] For: ${curriculum?.name}. Received extracted text length: ${extractedText?.length || 0}`);
   if (!genAI) return { error: "Gemini API key not configured.", analysisComplete: false, lastAnalyzed: new Date().toISOString(), analyzedBy: "GeminiEngine (Disabled)" };
-  if (!extractedText || extractedText.trim().length < 20) { // Very short text minimum for this test
+  
+  const MIN_TEXT_LENGTH = 20; // Define minimum length clearly
+  if (!extractedText || extractedText.trim().length < MIN_TEXT_LENGTH) {
+    console.warn(`[Worker/generateReal] Extracted text ("${String(extractedText).substring(0,50)}...") is shorter than minimum ${MIN_TEXT_LENGTH} chars.`);
     return { 
-        error: "Extracted text too short for analysis (min 20 chars).", analysisComplete: false,
+        error: `Extracted text too short for analysis (min ${MIN_TEXT_LENGTH} chars). Received ${extractedText?.trim().length || 0} chars.`, 
+        analysisComplete: false,
         lastAnalyzed: new Date().toISOString(), analyzedBy: "GeminiEngine (Insufficient Text)",
-        overallAlignmentScore: 5, overallStatusText: "Insufficient Data",
+        overallAlignmentScore: 5, overallStatusText: "Insufficient Data for AI",
         standardAlignmentDetails: { summary: "Not enough text from curriculum to perform analysis.", findings: []},
         extractedTextSnippet: extractedText ? extractedText.substring(0, 100) + "..." : "No text extracted.",
     };
   }
 
-  const MAX_TEXT_SNIPPET = 500; // EXTREMELY reduced text snippet for this focused JSON test
-  const textForPrompting = extractedText.length > MAX_TEXT_SNIPPET ? extractedText.substring(0, MAX_TEXT_SNIPPET) : extractedText;
-  
-  const systemInstructionText = `You are an expert curriculum analyst. Respond ONLY with a valid JSON object. Your entire response must be a single, parsable JSON object. Do not include any markdown, explanations, or conversational text outside of the JSON structure requested.`;
+  const MAX_PROMPT_TEXT_SNIPPET = 3000;
+  const textForPrompting = extractedText.length > MAX_PROMPT_TEXT_SNIPPET ? extractedText.substring(0, MAX_PROMPT_TEXT_SNIPPET) : extractedText;
+  const systemInstructionText = `You are an expert curriculum analyst. Respond ONLY with a valid JSON object. Do not include any other text or markdown. Your entire response must be a single, parsable JSON object.`;
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest", generationConfig, safetySettings, systemInstruction: { role: "system", parts: [{ text: systemInstructionText }] } });
   
-  let analysisResultsBuild = {
-    lastAnalyzed: new Date().toISOString(),
-    analyzedBy: "GeminiWorker-SuperSimple-v1.0",
-    overallStatusText: "Analysis In Progress...",
-    standardAlignmentDetails: { summary: "Awaiting simple admissions check.", findings: [] },
-    extractedTextSnippet: textForPrompting.substring(0, 100) + "...",
-    analysisComplete: false,
-    errors: []
-  };
+  let analysisResultsBuild = { /* ... initial structure ... */ };
+  analysisResultsBuild.lastAnalyzed = new Date().toISOString();
+  analysisResultsBuild.analyzedBy = "GeminiWorker-Simplified-v1.1";
+  analysisResultsBuild.extractedTextSnippet = textForPrompting.substring(0, 200) + "...";
+  analysisResultsBuild.errors = [];
 
   try {
-    // EXTREMELY Simplified Admissions Requirements Prompt for Debugging JSON output
-    const admissionsPrompt = `
-      Based on the Curriculum Text Snippet, assess ONLY the English requirement (4 units).
-      Curriculum Text Snippet: """${textForPrompting}"""
-      Requirement: English: ${USAO_ADMISSIONS_REQUIREMENTS_SIMPLIFIED.englishUnits.required} units.
-      Your response MUST be a single, valid JSON object with ONLY one top-level key: "englishAnalysis".
-      This key's value must be an object with two keys: "alignmentStatus" (string: "Met", "Partially Met", "Gap", or "Unclear") and "reasoning" (string, strictly max 5 words).
-      Example: {"englishAnalysis": {"alignmentStatus": "Met", "reasoning": "Appears to cover requirements."}}
-    `;
-
-    console.log("[Worker/generateReal] Sending SUPER SIMPLIFIED prompt to Gemini...");
+    const admissionsPrompt = `Analyze curriculum text snippet for USAO freshman admissions (English only). Text: """${textForPrompting}""" Requirement: English: ${USAO_ADMISSIONS_REQUIREMENTS_SIMPLIFIED.englishUnits.required} units. Respond ONLY with JSON: {"englishAnalysis": {"alignmentStatus": "Met/Partially Met/Gap/Unclear", "reasoning": "brief, max 5 words"}}`;
+    console.log("[Worker/generateReal] Sending simplified admissions prompt to Gemini...");
     const admissionsData = await callGeminiAndParseJson(admissionsPrompt, model);
     
     if (admissionsData && admissionsData.englishAnalysis && typeof admissionsData.englishAnalysis.alignmentStatus === 'string') {
-      analysisResultsBuild.standardAlignmentDetails.findings.push({
-          standardId: "USAO-HS-ENGLISH-SIMPLE",
-          description: "English Unit Requirement (Simplified Check)",
-          alignmentStatus: admissionsData.englishAnalysis.alignmentStatus,
-          reasoning: admissionsData.englishAnalysis.reasoning || "N/A"
-      });
-      analysisResultsBuild.standardAlignmentDetails.summary = "Simplified USAO English admissions assessment complete.";
+      analysisResultsBuild.standardAlignmentDetails = {
+        findings: [{
+            standardId: "USAO-HS-ENGLISH-SIMPLE",
+            description: "English Unit Requirement (Simplified Check)",
+            alignmentStatus: admissionsData.englishAnalysis.alignmentStatus,
+            reasoning: admissionsData.englishAnalysis.reasoning || "N/A"
+        }],
+        summary: "Simplified USAO English admissions assessment complete.",
+        overallStatusText: `English: ${admissionsData.englishAnalysis.alignmentStatus}`,
+        overallScore: admissionsData.englishAnalysis.alignmentStatus === "Met" ? 100 : (admissionsData.englishAnalysis.alignmentStatus === "Partially Met" ? 50 : 10),
+      };
       analysisResultsBuild.overallStatusText = `English: ${admissionsData.englishAnalysis.alignmentStatus}`;
-      analysisResultsBuild.analysisComplete = true; // Mark as complete if this one part worked
+      analysisResultsBuild.overallAlignmentScore = analysisResultsBuild.standardAlignmentDetails.overallScore;
+      analysisResultsBuild.analysisComplete = true;
     } else {
       analysisResultsBuild.errors.push("Simplified admissions analysis from AI was malformed or key 'englishAnalysis' was missing.");
-      analysisResultsBuild.overallStatusText = "Partial Failure (AI Format Error)";
+      analysisResultsBuild.overallStatusText = "Partial Failure (AI Format)";
       console.warn("[Worker/generateReal] Simplified admissions data error. Received:", admissionsData);
     }
-
   } catch (error) {
     console.error("[Worker/generateReal] Critical error during simplified AI analysis:", error.message);
     if (error.rawResponse) console.error("Raw Gemini text for failed call:\n", error.rawResponse);
     analysisResultsBuild.errors.push("Critical error in AI call: " + error.message);
     analysisResultsBuild.overallStatusText = "Failed Critically (AI Call)";
-    analysisResultsBuild.analysisComplete = false; // Ensure this is false on error
+    analysisResultsBuild.analysisComplete = false;
   }
   return analysisResultsBuild;
 }
 
 async function extractTextFromFile(fileBuffer, mimeType) {
-  // ... (Keep the existing robust extractTextFromFile function) ...
+  console.log(`[extractTextFromFile] Attempting text extraction. MimeType: ${mimeType}, Buffer length: ${fileBuffer?.length}`);
+  if (!fileBuffer || fileBuffer.length === 0) {
+    console.warn("[extractTextFromFile] Received empty or null file buffer.");
+    return ""; // Return empty string if buffer is empty
+  }
+
+  if (mimeType === 'application/pdf') {
+    try {
+      const data = await pdf(fileBuffer);
+      const text = data.text || "";
+      console.log(`[extractTextFromFile] PDF text extracted. Length: ${text.length}. Snippet: "${text.substring(0,100)}..."`);
+      return text;
+    } catch (error) {
+      console.error("[extractTextFromFile] Error parsing PDF:", error.message, error.stack);
+      throw new Error(`Failed to parse PDF content: ${error.message}`);
+    }
+  } else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') { // DOCX
+    try {
+      const { value } = await mammoth.extractRawText({ buffer: fileBuffer });
+      const text = value || "";
+      console.log(`[extractTextFromFile] DOCX text extracted. Length: ${text.length}. Snippet: "${text.substring(0,100)}..."`);
+      return text;
+    } catch (error) {
+      console.error("[extractTextFromFile] Error parsing DOCX:", error.message, error.stack);
+      throw new Error(`Failed to parse DOCX content: ${error.message}`);
+    }
+  } else if (mimeType === 'text/plain') {
+    try {
+      const text = fileBuffer.toString('utf8');
+      console.log(`[extractTextFromFile] TXT text extracted. Length: ${text.length}. Snippet: "${text.substring(0,100)}..."`);
+      return text;
+    } catch (error) {
+      console.error("[extractTextFromFile] Error parsing TXT:", error.message, error.stack);
+      throw new Error(`Failed to parse TXT content: ${error.message}`);
+    }
+  } else {
+    console.warn(`[extractTextFromFile] Unsupported mimeType for text extraction: ${mimeType}`);
+    throw new Error(`Unsupported file type for text extraction: ${mimeType}`);
+  }
 }
 
 export async function performFullAnalysis(curriculumId) {
   console.log(`[Worker/performFullAnalysis] Starting for curriculum ID: ${curriculumId}`);
-  let analysisStatus = "PROCESSING"; // Default to PROCESSING
-  let analysisResultsObject = {
-    lastAnalyzed: new Date().toISOString(),
-    analyzedBy: "GeminiWorker-Async",
-    error: "Analysis initiated.",
-    analysisComplete: false,
-  };
+  let analysisStatus = "PROCESSING_WORKER";
+  let analysisResultsObject = { /* Default initial structure */ };
   let analysisErrorMsg = null;
 
   try {
@@ -148,16 +150,24 @@ export async function performFullAnalysis(curriculumId) {
     if (!curriculum) throw new Error("Curriculum not found in worker.");
     if (!curriculum.filePath) throw new Error("Curriculum filePath is missing in worker.");
 
+    console.log(`[Worker/performFullAnalysis] Fetching file from Blob: ${curriculum.filePath}`);
     const fileResponse = await fetch(curriculum.filePath);
-    if (!fileResponse.ok) throw new Error(`Blob fetch failed: ${fileResponse.statusText}`);
-    const fileBuffer = await fileResponse.buffer();
+    if (!fileResponse.ok) throw new Error(`Blob fetch failed: ${fileResponse.status} ${fileResponse.statusText}`);
+    
+    // Use arrayBuffer() then Buffer.from() for wider compatibility than response.buffer()
+    const arrayBuffer = await fileResponse.arrayBuffer();
+    const fileBuffer = Buffer.from(arrayBuffer);
+    
     const mimeType = fileResponse.headers.get('content-type') || 'application/octet-stream';
+    console.log(`[Worker/performFullAnalysis] File fetched. Size: ${fileBuffer.length}, MIME Type: ${mimeType}`);
     
     let extractedText = "";
     try {
       extractedText = await extractTextFromFile(fileBuffer, mimeType);
+      console.log(`[Worker/performFullAnalysis] Text successfully extracted. Length: ${extractedText.length}. Snippet: "${extractedText.substring(0,100)}..."`);
     } catch (extractionError) {
       console.error(`[Worker/performFullAnalysis] Text extraction failed:`, extractionError.message);
+      // This error will be caught by the outer catch block
       throw new Error(`Text extraction failed: ${extractionError.message}`);
     }
     
@@ -167,8 +177,8 @@ export async function performFullAnalysis(curriculumId) {
         analysisStatus = "FAILED";
         analysisErrorMsg = analysisResultsObject.error || (analysisResultsObject.errors || []).join('; ');
     } else if (!analysisResultsObject.analysisComplete) {
-        analysisStatus = "FAILED"; // If analysisComplete is false and no specific error, still treat as failed for simplicity
-        analysisErrorMsg = "AI Analysis did not complete as expected.";
+        analysisStatus = "FAILED"; 
+        analysisErrorMsg = "AI Analysis did not complete successfully (marked as incomplete).";
     } else {
         analysisStatus = "COMPLETED";
     }
@@ -177,11 +187,11 @@ export async function performFullAnalysis(curriculumId) {
     console.error(`[Worker/performFullAnalysis] Top-level error for ${curriculumId}:`, error.message, error.stack);
     analysisStatus = "FAILED";
     analysisErrorMsg = error.message || "Unknown worker error.";
-    analysisResultsObject.error = analysisResultsObject.error || analysisErrorMsg; // Preserve existing error if any
+    analysisResultsObject.error = analysisResultsObject.error || analysisErrorMsg;
     analysisResultsObject.analysisComplete = false;
     if (!analysisResultsObject.lastAnalyzed) analysisResultsObject.lastAnalyzed = new Date().toISOString();
   } finally {
-    console.log(`[Worker/performFullAnalysis] Updating DB for ${curriculumId}, status: ${analysisStatus}, error: ${analysisErrorMsg}`);
+    console.log(`[Worker/performFullAnalysis] Updating DB for ${curriculumId}, status: ${analysisStatus}, error: ${analysisErrorMsg ? `"${analysisErrorMsg}"` : 'null'}`);
     try {
       await prisma.curriculum.update({
         where: { id: String(curriculumId) },
