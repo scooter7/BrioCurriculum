@@ -3,17 +3,17 @@ import prisma from '../../../lib/prisma';
 import { put } from '@vercel/blob';
 import { IncomingForm } from 'formidable';
 import fs from 'fs';
-import path from 'path'; // For working with file paths
+import path from 'path';
 
 export const config = {
   api: {
-    bodyParser: false, // Necessary for formidable to parse multipart/form-data
+    bodyParser: false,
   },
 };
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
-    // GET handler remains the same (ensure analysisResults is handled as object for PG)
+    // ... (GET handler remains the same)
     try {
       const curricula = await prisma.curriculum.findMany({
         select: {
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
         ...c,
         uploadedAt: c.uploadedAt.toISOString(),
         updatedAt: c.updatedAt.toISOString(),
-        analysisResults: c.analysisResults || {}, // Already an object with Json type
+        analysisResults: c.analysisResults || {},
       }));
       return res.status(200).json(serializedCurricula);
     } catch (error) {
@@ -37,56 +37,61 @@ export default async function handler(req, res) {
     console.log("[API POST /curricula] Received request to create curriculum.");
     
     const form = new IncomingForm({
-        uploadDir: "/tmp", // Vercel serverless functions can write to /tmp
+        uploadDir: "/tmp",
         keepExtensions: true,
-        multiples: false, // Handle single file upload for 'curriculumFile'
+        multiples: false, // Expect a single file for 'curriculumFile'
     });
 
     form.parse(req, async (err, fields, files) => {
       console.log("[API POST /curricula] Formidable parsing initiated.");
       console.log("[API POST /curricula] Formidable raw error (if any):", err);
+      // Log raw fields and files carefully
       console.log("[API POST /curricula] Raw Fields from formidable:", JSON.stringify(fields, null, 2));
       console.log("[API POST /curricula] Raw Files from formidable:", JSON.stringify(files, (key, value) => {
-        // Avoid logging large file content if files object contains it directly
-        if (key === 'buffer' && value && value.type === 'Buffer') {
-          return `Buffer data (${value.data.length} bytes)`;
-        }
+        if (key === 'buffer' && value && value.type === 'Buffer') return `Buffer data (${value.data.length} bytes)`;
         return value;
       }, 2));
-
 
       if (err) {
         console.error("[API POST /curricula] Error parsing form data with formidable:", err);
         return res.status(500).json({ error: 'Error parsing form data.' });
       }
 
-      let tempFilePath = null; // To ensure cleanup
+      let tempFilePath = null;
 
       try {
-        // Formidable wraps single string fields in arrays. Access the first element.
-        const name = fields.name && Array.isArray(fields.name) && fields.name.length > 0 ? fields.name[0].trim() : null;
-        const schoolTag = fields.schoolTag && Array.isArray(fields.schoolTag) && fields.schoolTag.length > 0 ? fields.schoolTag[0].trim() : null;
+        // Corrected field extraction: formidable might not always wrap single fields in arrays.
+        // Check if it's an array first, then access [0]. If not an array, use the value directly.
+        const rawName = fields.name;
+        const name = rawName ? (Array.isArray(rawName) ? rawName[0]?.trim() : String(rawName).trim()) : null;
         
-        // 'curriculumFile' should match the name attribute in your form's file input
-        const curriculumFileArray = files.curriculumFile; 
-        const fileToUpload = curriculumFileArray && Array.isArray(curriculumFileArray) && curriculumFileArray.length > 0 ? curriculumFileArray[0] : null;
+        const rawSchoolTag = fields.schoolTag;
+        const schoolTag = rawSchoolTag ? (Array.isArray(rawSchoolTag) ? rawSchoolTag[0]?.trim() : String(rawSchoolTag).trim()) : null;
         
-        tempFilePath = fileToUpload?.filepath; // Store for cleanup
+        // 'curriculumFile' should be the key in the 'files' object from formidable
+        const curriculumFileObject = files.curriculumFile; 
+        // If formidable is configured with multiples: false (default for single file inputs),
+        // it should provide the file object directly, not in an array.
+        // If it IS an array, take the first element.
+        const fileToUpload = Array.isArray(curriculumFileObject) && curriculumFileObject.length > 0 ? curriculumFileObject[0] : curriculumFileObject;
+        
+        tempFilePath = fileToUpload?.filepath;
 
         console.log("[API POST /curricula] Extracted name:", name);
-        console.log("[API POST /curricula] Extracted schoolTag:", schoolTag); // Will be null if empty
-        console.log("[API POST /curricula] Extracted fileToUpload (metadata):", fileToUpload ? { originalFilename: fileToUpload.originalFilename, filepath: fileToUpload.filepath, mimetype: fileToUpload.mimetype, size: fileToUpload.size } : "No file object found");
+        console.log("[API POST /curricula] Extracted schoolTag:", schoolTag);
+        console.log("[API POST /curricula] Extracted fileToUpload (object):", fileToUpload ? { originalFilename: fileToUpload.originalFilename, newFilename: fileToUpload.newFilename, filepath: fileToUpload.filepath, mimetype: fileToUpload.mimetype, size: fileToUpload.size } : "No file object found under 'curriculumFile'");
 
         if (!name) {
-          console.error("[API POST /curricula] Validation failed: Curriculum name is missing or empty.");
+          console.error("[API POST /curricula] Validation failed: Curriculum name is missing or empty after processing.");
           return res.status(400).json({ error: "Curriculum name is required." });
         }
         if (!fileToUpload) {
             console.error("[API POST /curricula] Validation failed: No curriculum file was uploaded or processed correctly.");
             return res.status(400).json({ error: "Curriculum file is required." });
         }
+        // Formidable v3 uses 'newFilename' for the path of the uploaded file in uploadDir
         if (!fileToUpload.originalFilename || !fileToUpload.filepath || !fileToUpload.mimetype) {
-            console.error("[API POST /curricula] File object is invalid (missing originalFilename, filepath, or mimetype). File object:", fileToUpload);
+            console.error("[API POST /curricula] File object is invalid (missing originalFilename, filepath/newFilename, or mimetype). File object:", fileToUpload);
             return res.status(400).json({ error: "Uploaded file data is incomplete or corrupted." });
         }
 
@@ -99,22 +104,19 @@ export default async function handler(req, res) {
         const blob = await put(
           blobFileName,
           fileContent,
-          {
-            access: 'public',
-            contentType: fileToUpload.mimetype,
-          }
+          { access: 'public', contentType: fileToUpload.mimetype }
         );
         console.log("[API POST /curricula] File uploaded to Vercel Blob:", blob.url);
 
-        const initialAnalysisResultsObject = {}; // Stored as JSONB in PostgreSQL
+        const initialAnalysisResultsObject = {};
 
         const newCurriculum = await prisma.curriculum.create({
           data: {
             name,
             originalFileName: fileToUpload.originalFilename,
-            schoolTag: schoolTag || null, // Ensure it's null if empty string or not provided
+            schoolTag: schoolTag || null,
             filePath: blob.url,
-            analysisResults: initialAnalysisResultsObject, // Prisma handles JSON object directly
+            analysisResults: initialAnalysisResultsObject,
           },
         });
         console.log("[API POST /curricula] Curriculum record created in DB:", newCurriculum.id);
@@ -123,7 +125,7 @@ export default async function handler(req, res) {
           ...newCurriculum,
           uploadedAt: newCurriculum.uploadedAt.toISOString(),
           updatedAt: newCurriculum.updatedAt.toISOString(),
-          analysisResults: newCurriculum.analysisResults || {}, // Already an object
+          analysisResults: newCurriculum.analysisResults || {},
         };
 
         return res.status(201).json(serializedNewCurriculum);
@@ -134,7 +136,6 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: "Unable to create curriculum or upload file. " + error.message });
         }
       } finally {
-        // Clean up temporary file if it exists
         if (tempFilePath) {
             fs.unlink(tempFilePath, (unlinkErr) => {
                 if (unlinkErr) console.error("[API POST /curricula] Error deleting temp file:", tempFilePath, unlinkErr);
