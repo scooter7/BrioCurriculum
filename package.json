@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma migrate deploy && prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "prisma:generate": "prisma generate",
@@ -12,19 +12,20 @@
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
+    "@google/generative-ai": "^0.12.0",
     "@prisma/client": "^5.14.0",
-    "@vercel/blob": "^1.0.1",
-    "next": "^14.2.28",
+    "@vercel/blob": "^0.23.3",
+    "formidable": "^3.5.1",
+    "next": "14.2.3",
     "react": "^18",
     "react-dom": "^18"
   },
   "devDependencies": {
-    "dotenv-cli": "^8.0.0",
+    "dotenv-cli": "^7.4.2",
     "eslint": "^8",
     "eslint-config-next": "14.2.3",
-    "postcss": "^8",
     "prisma": "^5.14.0",
+    "postcss": "^8",
     "tailwindcss": "^3.4.1"
   }
 }
