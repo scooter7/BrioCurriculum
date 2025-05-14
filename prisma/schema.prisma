@@ -1,9 +1,10 @@
 // File: prisma/schema.prisma
 
 datasource db {
-  provider = "sqlite" // For local development
-  url      = env("DATABASE_URL") // Locally, .env.local points to "file:./prisma/dev.db"
-                               // On Vercel, this will be your PostgreSQL URL
+  provider          = "postgresql" // Changed for Vercel/Supabase PostgreSQL
+  url               = env("DATABASE_URL")
+  directUrl         = env("DIRECT_URL")        // For migrations
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL") // Recommended for Prisma with PostgreSQL
 }
 
 generator client {
@@ -27,17 +28,15 @@ model Curriculum {
   name               String
   originalFileName   String
   schoolTag          String?
-  filePath           String?   // URL from Vercel Blob or local path
+  filePath           String?   // URL from Vercel Blob
 
-  // For SQLite compatibility, store JSON as a String.
-  // Your API logic will handle JSON.stringify() and JSON.parse().
-  analysisResults    String?   
+  analysisResults    Json?     // Changed back to Json for PostgreSQL
 
   uploadedAt         DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
   userId             String?
-  user               User?     @relation(fields: [userId], references: [id], onDelete: SetNull) // Or Cascade
+  user               User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   actionItems        ActionItem[]
 
