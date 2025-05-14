@@ -13,7 +13,6 @@ export const config = {
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
-    // ... (GET handler remains the same)
     try {
       const curricula = await prisma.curriculum.findMany({
         select: {
@@ -39,38 +38,27 @@ export default async function handler(req, res) {
     const form = formidable({
         uploadDir: "/tmp",
         keepExtensions: true,
-        multiples: false, 
+        multiples: false,
     });
 
-    // Debugging: Log all parts formidable is seeing
-    form.on('part', (part) => {
-        console.log(`[Formidable Event - part] Received part: name="${part.name}", originalFilename="${part.originalFilename}", mime="${part.mime}"`);
-        if (part.originalFilename === null || part.originalFilename === undefined) { // It's a field
-            part.on('data', (buffer) => {
-                console.log(`[Formidable Event - field data] name="${part.name}", value snippet="${buffer.toString().substring(0, 50)}..."`);
-            });
-        } else { // It's a file
-             part.on('data', (buffer) => {
-                console.log(`[Formidable Event - file data chunk] name="${part.name}", originalFilename="${part.originalFilename}", chunk size=${buffer.length}`);
-            });
-        }
-    });
-    form.on('fileBegin', (name, file) => {
-        console.log(`[Formidable Event - fileBegin] name="${name}", originalFilename="${file.originalFilename}", temp path="${file.filepath}"`);
-    });
-    form.on('file', (name, file) => { // This event fires when a file has been successfully received
-        console.log(`[Formidable Event - file] Successfully parsed file: name="${name}", originalFilename="${file.originalFilename}", size=${file.size}, temp path="${file.filepath}", mimetype="${file.mimetype}"`);
-    });
     form.on('error', (err) => {
         console.error('[Formidable Event - error] Error during form parsing:', err);
     });
-     form.on('aborted', () => {
+    form.on('field', (name, value) => {
+        console.log(`[Formidable Event - field data] name="${name}", value snippet="${String(value).substring(0, 50)}..."`);
+    });
+    form.on('fileBegin', (name, file) => {
+        console.log(`[Formidable Event - fileBegin] inputName=${name}, originalFilename=${file.originalFilename}, tempFilepath=${file.filepath}`);
+    });
+    form.on('file', (name, file) => {
+        console.log(`[Formidable Event - file] Successfully parsed file: inputName=${name}, originalFilename="${file.originalFilename}", size=${file.size}, temp path="${file.filepath}", mimetype="${file.mimetype}"`);
+    });
+    form.on('aborted', () => {
         console.log('[Formidable Event - aborted] Request aborted by the user');
     });
     form.on('end', () => {
         console.log('[Formidable Event - end] Form parsing finished.');
     });
-
 
     let tempFilePath = null;
 
@@ -79,9 +67,22 @@ export default async function handler(req, res) {
         
         console.log("[API POST /curricula] Formidable finished parsing (await).");
         console.log("[API POST /curricula] Parsed Fields (await):", JSON.stringify(fields, null, 2));
+        
+        // More robust logging for files object
         console.log("[API POST /curricula] Parsed Files (await):", JSON.stringify(files, (key, value) => {
-            if (value instanceof formidable.File) {
-                return { originalFilename: value.originalFilename, newFilename: value.newFilename, filepath: value.filepath, mimetype: value.mimetype, size: value.size };
+            // Check for properties typical of a formidable.File object
+            if (value && typeof value === 'object' && value.filepath && value.originalFilename) {
+                return { 
+                    originalFilename: value.originalFilename, 
+                    newFilename: value.newFilename, // formidable v3 uses newFilename for the name in uploadDir
+                    filepath: value.filepath,       // actual path to the temp file
+                    mimetype: value.mimetype, 
+                    size: value.size 
+                };
+            }
+            // Avoid logging large buffers directly if any other unexpected structure
+            if (key === 'buffer' && value && value.type === 'Buffer' && value.data) {
+              return `Buffer data (${value.data.length} bytes)`;
             }
             return value;
         }, 2));
@@ -92,8 +93,7 @@ export default async function handler(req, res) {
         const rawSchoolTag = fields.schoolTag;
         const schoolTag = rawSchoolTag ? (Array.isArray(rawSchoolTag) ? rawSchoolTag[0]?.trim() : String(rawSchoolTag).trim()) : null;
         
-        // Access the file using the name attribute of your file input (e.g., 'curriculumFile')
-        const fileToUpload = files.curriculumFile; // This should be a formidable.File object
+        const fileToUpload = files.curriculumFile; 
         
         tempFilePath = fileToUpload?.filepath;
 
@@ -128,7 +128,7 @@ export default async function handler(req, res) {
             originalFileName: fileToUpload.originalFilename,
             schoolTag: schoolTag || null,
             filePath: blob.url,
-            analysisResults: {},
+            analysisResults: {}, // Store as JSON object
           },
         });
 
