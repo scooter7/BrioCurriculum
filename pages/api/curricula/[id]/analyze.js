@@ -15,10 +15,10 @@ if (apiKey) {
 }
 
 const generationConfig = {
-  temperature: 0.1, // Lowered for more deterministic JSON output
+  temperature: 0.1, 
   topK: 1,
   topP: 0.95,
-  maxOutputTokens: 8192,
+  maxOutputTokens: 4096, // Still allow for a decent JSON response
   responseMimeType: "application/json", // Crucial for enforcing JSON output
 };
 const safetySettings = [
@@ -29,45 +29,50 @@ const safetySettings = [
 ];
 
 const USAO_ADMISSIONS_REQUIREMENTS = {
-  englishUnits: { required: 4, label: "English (Grammar, Composition, Literature)", keywords: ["english", "literature", "composition", "writing", "grammar", "rhetoric"] },
-  mathUnits: { required: 3, label: "Mathematics (Algebra I, Geometry, Algebra II or higher)", keywords: ["math", "algebra", "geometry", "trigonometry", "pre-calculus", "calculus", "statistics"] },
-  scienceUnits: { required: 3, label: "Lab Science (Biology, Chemistry, Physics, etc.)", keywords: ["science", "biology", "chemistry", "physics", "lab", "environmental", "physical science"] },
-  historyUnits: { required: 3, label: "History & Citizenship (inc. American History)", keywords: ["history", "government", "civics", "social studies", "economics", "geography", "world history", "us history", "american history"] },
-  electivesUnits: { required: 2, label: "Electives (Foreign Lang, Comp Sci, other AP)", keywords: ["spanish", "french", "german", "latin", "computer science", "programming", "ap", "advanced placement", "psychology", "sociology", "art", "music", "drama"] },
+  englishUnits: { required: 4, label: "English (Grammar, Composition, Literature)"},
+  mathUnits: { required: 3, label: "Mathematics (Algebra I, Geometry, Algebra II or higher)"},
+  scienceUnits: { required: 3, label: "Lab Science (Biology, Chemistry, Physics, etc.)"},
+  historyUnits: { required: 3, label: "History & Citizenship (inc. American History)"},
+  electivesUnits: { required: 2, label: "Electives (Foreign Lang, Comp Sci, other AP)"},
   totalUnits: 15,
 };
-const USAO_INTRO_COURSE_THEMES = { /* ... */ }; // Keep as defined before
-const REGIONAL_HIGH_GROWTH_INDUSTRIES_OK = [ /* ... */ ]; // Keep as defined before
+// Keep USAO_INTRO_COURSE_THEMES and REGIONAL_HIGH_GROWTH_INDUSTRIES_OK as defined before
+const USAO_INTRO_COURSE_THEMES = {
+  english: ["composition", "literature analysis", "critical reading skills", "research writing", "communication fundamentals"],
+  math: ["college algebra concepts", "functions", "pre-calculus topics", "introductory statistics reasoning", "quantitative problem-solving"],
+  science: ["principles of biology (cells, genetics, evolution)", "general chemistry concepts (atomic structure, bonding, reactions)", "foundations of physics (mechanics, energy)", "scientific method and inquiry", "laboratory techniques and data interpretation"],
+  humanities: ["survey of american history", "world civilizations overview", "introduction to philosophy and ethics", "foundational concepts in social sciences (e.g., psychology, sociology)"],
+  arts: ["art history and appreciation", "music theory fundamentals", "introduction to theatre arts", "elements and principles of design"],
+};
+const REGIONAL_HIGH_GROWTH_INDUSTRIES_OK = [
+  { id: "health", name: "Health Care & Social Assistance", keywords: ["health", "medical", "nursing", "biology", "chemistry", "anatomy", "physiology", "psychology", "social work"], skills: ["Patient Care Fundamentals", "Medical Terminology", "Empathy & Communication", "Scientific Literacy (Biology/Chemistry)", "Data Interpretation", "Ethical Considerations"] },
+  { id: "manufacturing", name: "Manufacturing (including Advanced & Aerospace)", keywords: ["manufacturing", "engineering", "aerospace", "aviation", "robotics", "cad", "cam", "industrial technology", "mechanics", "electronics"], skills: ["Technical Aptitude & Problem-Solving", "Applied Mathematics & Physics", "Understanding of Design & Schematics (CAD awareness)", "Quality Control Principles", "Safety Protocols", "Automation Concepts"] },
+  { id: "professional_tech", name: "Professional, Scientific, & Technical Services (inc. IT)", keywords: ["business administration", "accounting", "information technology", "it", "computer science", "software development", "cybersecurity", "data analysis", "research", "consulting"], skills: ["Analytical & Critical Thinking", "IT Literacy & Digital Fluency", "Programming Fundamentals (e.g., Python)", "Data Management & Analysis Basics", "Cybersecurity Awareness", "Professional Communication & Collaboration", "Project Management Basics"] },
+  { id: "energy", name: "Energy (inc. Oil & Gas, Renewables)", keywords: ["energy", "oil", "gas", "renewable", "wind", "solar", "geology", "environmental science", "engineering"], skills: ["Understanding of Energy Systems", "Environmental Awareness", "Technical Problem Solving", "Safety Regulations", "Data Monitoring & Analysis"] }
+];
 
 
-async function callGeminiAndParseJson(promptContent, modelInstance, attempt = 1, maxAttempts = 2) { // Reduced maxAttempts for faster feedback
+async function callGeminiAndParseJson(promptContent, modelInstance, attempt = 1, maxAttempts = 2) { // Reduced maxAttempts to 2
   console.log(`[callGeminiAndParseJson] Attempt ${attempt}/${maxAttempts} for prompt (first 100 chars): ${typeof promptContent === 'string' ? promptContent.substring(0,100) : JSON.stringify(promptContent).substring(0,100)}...`);
   let rawTextResponse = "";
   try {
     const result = await modelInstance.generateContent(promptContent);
     const response = result.response;
-    rawTextResponse = response.text();
-    console.log(`[callGeminiAndParseJson] Raw Gemini response text (length: ${rawTextResponse.length}):\n---\n${rawTextResponse.substring(0, 1000)}...\n---`); // Log more
+    rawTextResponse = response.text(); // Get the full text
+    // Log more of the raw response to help debug JSON issues
+    console.log(`[callGeminiAndParseJson] Raw Gemini response text (length: ${rawTextResponse.length}):\n---\n${rawTextResponse.substring(0, 2500)}...\n---`);
 
     // With responseMimeType: "application/json", Gemini should return clean JSON.
-    // The ```json ... ``` cleanup might not be necessary but kept as a fallback.
-    let jsonText = rawTextResponse;
-    const jsonMatch = rawTextResponse.match(/```json\s*([\s\S]*?)\s*```/s);
-    if (jsonMatch && jsonMatch[1]) {
-      jsonText = jsonMatch[1];
-      console.log("[callGeminiAndParseJson] Extracted JSON content from markdown block.");
-    } else {
-        // If no markdown, assume the whole response is the JSON (or try to find first/last brace if still problematic)
-        const firstBrace = jsonText.indexOf('{');
-        const lastBrace = jsonText.lastIndexOf('}');
-        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-            jsonText = jsonText.substring(firstBrace, lastBrace + 1);
-        } else if (!jsonText.trim().startsWith("{") || !jsonText.trim().endsWith("}")){
-             console.warn("[callGeminiAndParseJson] Response does not appear to be JSON or wrapped in markdown. Trying to parse as is.");
-        }
+    // If it's still wrapped, this cleanup might be needed, but ideally not.
+    let jsonText = rawTextResponse.trim();
+    if (jsonText.startsWith("```json")) {
+      jsonText = jsonText.substring(7, jsonText.length - 3).trim();
+      console.log("[callGeminiAndParseJson] Cleaned markdown from JSON response.");
+    } else if (jsonText.startsWith("```")) { // More generic markdown block
+        jsonText = jsonText.substring(3, jsonText.length - 3).trim();
+        console.log("[callGeminiAndParseJson] Cleaned generic markdown from JSON response.");
     }
     
-    jsonText = jsonText.trim();
     if (!jsonText) {
         throw new Error("Extracted JSON text is empty after cleaning.");
     }
@@ -76,17 +81,16 @@ async function callGeminiAndParseJson(promptContent, modelInstance, attempt = 1,
     console.log("[callGeminiAndParseJson] Successfully parsed JSON from Gemini.");
     return jsonData;
   } catch (error) {
-    console.error(`[callGeminiAndParseJson] Error on attempt ${attempt}:`, error.message);
-    // Log the full raw text on any parsing error for debugging
+    console.error(`[callGeminiAndParseJson] Error on attempt ${attempt}: ${error.message}`);
     console.error("[callGeminiAndParseJson] Full raw text that failed parsing (attempt " + attempt + "):\n>>>>>>>>>>>>\n" + rawTextResponse + "\n<<<<<<<<<<<<");
     
     if (attempt < maxAttempts) {
       console.log(`[callGeminiAndParseJson] Retrying... (${attempt + 1}/${maxAttempts})`);
-      await new Promise(resolve => setTimeout(resolve, 2500 * attempt)); // Slightly increased backoff
+      await new Promise(resolve => setTimeout(resolve, 3000 * attempt)); // Slightly longer backoff for retries
       return callGeminiAndParseJson(promptContent, modelInstance, attempt + 1, maxAttempts);
     } else {
       console.error("[callGeminiAndParseJson] Max attempts reached. Failed to parse JSON from Gemini.");
-      const parseError = new Error(`Failed to get valid JSON from AI after ${maxAttempts} attempts. Last error: ${error.message}. Check server logs for the raw AI response that failed parsing.`);
+      const parseError = new Error(`Failed to get valid JSON from AI after ${maxAttempts} attempts. Last error: ${error.message}. Check server logs for the full raw AI response that failed parsing.`);
       parseError.rawResponse = rawTextResponse; // Attach raw response to the error
       throw parseError;
     }
@@ -102,7 +106,7 @@ async function performRealAnalysisWithGemini(curriculum, extractedText) {
         extractedTextSnippet: extractedText ? extractedText.substring(0, 200) + "..." : "No text extracted."
     };
   }
-  if (!extractedText || extractedText.trim().length < 50) { // Minimal text length
+  if (!extractedText || extractedText.trim().length < 50) {
     return { 
         lastAnalyzed: new Date().toISOString(), analyzedBy: "GeminiEngine (Insufficient Text)",
         error: "Extracted text too short for meaningful analysis.", analysisComplete: false,
@@ -114,10 +118,9 @@ async function performRealAnalysisWithGemini(curriculum, extractedText) {
     };
   }
 
-  // Truncate text sent to Gemini for each prompt to manage token usage and response time
-  const MAX_PROMPT_TEXT_LENGTH = 30000; // Adjust based on model and complexity
-  const textForPrompting = extractedText.length > MAX_PROMPT_TEXT_LENGTH 
-    ? extractedText.substring(0, MAX_PROMPT_TEXT_LENGTH) 
+  const MAX_PROMPT_TEXT_LENGTH_ADMISSIONS = 15000; // Reduced for the first, simpler task
+  const textForAdmissionsPrompt = extractedText.length > MAX_PROMPT_TEXT_LENGTH_ADMISSIONS 
+    ? extractedText.substring(0, MAX_PROMPT_TEXT_LENGTH_ADMISSIONS) 
     : extractedText;
 
   const systemInstructionText = `You are an expert curriculum analyst. Your task is to evaluate high school curriculum text against specific criteria. Respond ONLY with a valid JSON object as specified in the prompt. Do not include any explanatory text, apologies, or markdown formatting like \`\`\`json or \`\`\` unless it is part of a valid JSON string value itself. Your entire response must be a single, parsable JSON object.`;
@@ -131,7 +134,7 @@ async function performRealAnalysisWithGemini(curriculum, extractedText) {
 
   let analysisResults = {
     lastAnalyzed: new Date().toISOString(),
-    analyzedBy: "GeminiAnalysisEngine V1.2",
+    analyzedBy: "GeminiAnalysisEngine V1.3-debug",
     overallAlignmentScore: 0,
     overallStatusText: "Analysis In Progress...",
     standardAlignmentDetails: { summary: "", findings: [], overallScore: 0, overallStatusText: "" },
@@ -142,16 +145,16 @@ async function performRealAnalysisWithGemini(curriculum, extractedText) {
       topHighGrowthIndustries: REGIONAL_HIGH_GROWTH_INDUSTRIES_OK.map(ind => ({ name: ind.name, projectedGrowth: "Varies" })),
       curriculumAlignmentWithKeyIndustries: [],
     },
-    extractedTextSnippet: textForPrompting.substring(0, 500) + "...",
+    extractedTextSnippet: textForAdmissionsPrompt.substring(0, 500) + "...",
     analysisComplete: false,
-    errors: [] // To store errors from individual AI calls
+    errors: []
   };
 
   try {
-    // 1. USAO Admissions Requirements Analysis
+    // 1. USAO Admissions Requirements Analysis (Simplified Request)
     const admissionsPrompt = `
-      Analyze the following curriculum text for alignment with USAO freshman admissions unit requirements.
-      Curriculum Text: """${textForPrompting}"""
+      Analyze the provided curriculum text for alignment with USAO freshman admissions unit requirements.
+      Curriculum Text: """${textForAdmissionsPrompt}"""
       USAO Requirements:
       - English: ${USAO_ADMISSIONS_REQUIREMENTS.englishUnits.required} units (${USAO_ADMISSIONS_REQUIREMENTS.englishUnits.label})
       - Math: ${USAO_ADMISSIONS_REQUIREMENTS.mathUnits.required} units (${USAO_ADMISSIONS_REQUIREMENTS.mathUnits.label})
@@ -159,11 +162,12 @@ async function performRealAnalysisWithGemini(curriculum, extractedText) {
       - History/Citizenship: ${USAO_ADMISSIONS_REQUIREMENTS.historyUnits.required} units (${USAO_ADMISSIONS_REQUIREMENTS.historyUnits.label})
       - Electives: ${USAO_ADMISSIONS_REQUIREMENTS.electivesUnits.required} units (${USAO_ADMISSIONS_REQUIREMENTS.electivesUnits.label})
       
-      For each requirement, determine if it's "Met", "Partially Met", "Gap", or "Unclear". Provide brief, factual reasoning (max 30 words) based ONLY on the provided text.
-      Your response MUST be a single, valid JSON object with a top-level key "admissionsFindings". This key should hold an array of objects.
-      Each object in the array must have these exact keys: "standardId" (string, e.g., "USAO-HS-ENGLISH"), "description" (string, the requirement label), "alignmentStatus" (string, one of "Met", "Partially Met", "Gap", "Unclear"), and "reasoning" (string).
-      Example: {"admissionsFindings": [{"standardId": "USAO-HS-ENGLISH", "description": "English (Grammar, Composition, Literature)", "alignmentStatus": "Met", "reasoning": "Curriculum details 4 years of English."}]}
-    `; // Removed "Do not include any text outside of this JSON object." as systemInstruction and responseMimeType should handle it.
+      For each requirement, determine if it's "Met", "Partially Met", "Gap", or "Unclear". Provide brief, factual reasoning (max 25 words) based ONLY on the provided text.
+      Your response MUST be a single, valid JSON object with ONLY one top-level key: "admissionsFindings". This key's value must be an array of objects.
+      Each object in the "admissionsFindings" array must have these exact keys: "standardId" (string, e.g., "USAO-HS-ENGLISH"), "description" (string, the requirement label), "alignmentStatus" (string: "Met", "Partially Met", "Gap", or "Unclear"), and "reasoning" (string).
+      Do not add any other keys or text outside this JSON structure.
+      Example: {"admissionsFindings": [{"standardId": "USAO-HS-MATH", "description": "Mathematics (Algebra I, Geometry, Algebra II or higher)", "alignmentStatus": "Met", "reasoning": "Covers Algebra I, Geometry, and Algebra II."}]}
+    `;
 
     console.log("[performRealAnalysisWithGemini] Sending admissions prompt to Gemini...");
     const admissionsData = await callGeminiAndParseJson(admissionsPrompt, model);
@@ -178,7 +182,7 @@ async function performRealAnalysisWithGemini(curriculum, extractedText) {
       if (admissionScore >= 80) analysisResults.standardAlignmentDetails.overallStatusText = "Strongly Aligned with HS Requirements";
       else if (admissionScore >= 60) analysisResults.standardAlignmentDetails.overallStatusText = "Partially Aligned with HS Requirements";
       else analysisResults.standardAlignmentDetails.overallStatusText = "Potential Gaps in HS Requirements";
-      analysisResults.overallAlignmentScore = admissionScore; // Base overall score on this for now
+      analysisResults.overallAlignmentScore = admissionScore;
       analysisResults.overallStatusText = analysisResults.standardAlignmentDetails.overallStatusText;
     } else {
         const errorMessage = "AI response for admissions was not in the expected JSON format or 'admissionsFindings' array was missing.";
@@ -188,16 +192,8 @@ async function performRealAnalysisWithGemini(curriculum, extractedText) {
         analysisResults.errors.push(errorMessage);
     }
     
-    // TODO: Implement similar calls for USAO_INTRO_COURSE_THEMES and REGIONAL_HIGH_GROWTH_INDUSTRIES_OK
-    // Each with its own specific prompt asking for JSON and parsing logic.
-    // Remember to add their results to the overall score and status if desired.
-
-    if (analysisResults.gapAnalysis.identifiedGaps.length === 0 && !analysisResults.errors.length) {
-        analysisResults.gapAnalysis.summary = analysisResults.gapAnalysis.summary || "No major gaps identified in initial analysis.";
-    }
-    if (analysisResults.regionalIndustryAlignment.curriculumAlignmentWithKeyIndustries.length === 0 && !analysisResults.errors.length) {
-        analysisResults.regionalIndustryAlignment.summary = analysisResults.regionalIndustryAlignment.summary || "Industry alignment requires further specific analysis.";
-    }
+    // TODO: Implement other analysis calls here (Intro Courses, Industry)
+    // For now, we only run the admissions analysis to debug and avoid timeouts.
 
     analysisResults.analysisComplete = analysisResults.errors.length === 0;
     if (analysisResults.errors.length > 0) {
@@ -207,7 +203,7 @@ async function performRealAnalysisWithGemini(curriculum, extractedText) {
 
   } catch (error) {
     console.error("[performRealAnalysisWithGemini] Critical error during AI analysis calls:", error.message);
-    if (error.rawResponse) { // Check if rawResponse was attached by callGeminiAndParseJson
+    if (error.rawResponse) {
         console.error("[performRealAnalysisWithGemini] Raw Gemini text that caused parsing error:\n", error.rawResponse);
     }
     analysisResults.error = "An error occurred during AI analysis: " + error.message;
@@ -218,9 +214,4 @@ async function performRealAnalysisWithGemini(curriculum, extractedText) {
 }
 
 async function extractTextFromFile(fileBuffer, mimeType) { /* ... same as before ... */ }
-export default async function handler(req, res) { /* ... same as before, calls performRealAnalysisWithGemini ... */ }
-
-// Constants should be defined at the top level of the module.
-// const USAO_ADMISSIONS_REQUIREMENTS = { /* ... */ };
-// const USAO_INTRO_COURSE_THEMES = { /* ... */ };
-// const REGIONAL_HIGH_GROWTH_INDUSTRIES_OK = [ /* ... */ ];
+export default async function handler(req, res) { /* ... same as before ... */ }
