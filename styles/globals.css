@@ -1,0 +1,181 @@
+/* File: styles/globals.css */
+
+/* --- Overall Theme & Variables (from prototype) --- */
+:root {
+    --primary-color: #4A90E2; /* Calming Blue */
+    --secondary-accent-color: #F5A623; /* Warm Orange */
+    --success-green: #7ED321;
+    --developing-yellow: #FFD700; /* For "Developing" status */
+
+    --bg-light: #F5F7FA; /* Light background for main content area */
+    --bg-sidebar: #FFFFFF; /* Background for the sidebar */
+    --border-color: #E0E6ED; /* Standard border color */
+    --text-primary: #4A4A4A; /* Main body text color */
+    --text-secondary: #9B9B9B; /* Lighter text for secondary info, tags, etc. */
+    --text-headings: #333333; /* Darker text for main headings */
+    --text-on-primary: #FFFFFF; /* Text color for elements with primary background */
+    --text-on-accent: #FFFFFF; /* Text color for elements with accent background */
+
+    --font-heading: 'Montserrat', 'Lato', 'Open Sans', sans-serif; /* Font for headings */
+    --font-body: 'Open Sans', 'Roboto', 'Inter', sans-serif; /* Font for body text */
+
+    --sidebar-width: 300px; /* Width of the left sidebar */
+    --header-height: 60px; /* Height of the top header */
+    --border-radius: 6px; /* Standard border radius for elements */
+    --card-shadow: 0 2px 4px rgba(0,0,0,0.05); /* Subtle shadow for cards */
+}
+
+/* --- Base & Typography (Reset and Defaults) --- */
+html,
+body {
+    padding: 0;
+    margin: 0;
+    font-family: var(--font-body); /* Use the body font variable */
+    color: var(--text-primary);
+    background-color: var(--bg-light); /* Set global background */
+    line-height: 1.6;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading); /* Use the heading font variable */
+    color: var(--text-headings);
+    margin-top: 0;
+    margin-bottom: 0.75em;
+}
+
+h1 { font-size: 28px; font-weight: 700; }
+h2 { font-size: 20px; font-weight: 600; }
+h3 { font-size: 18px; font-weight: 600; }
+h4 { font-size: 16px; font-weight: 600; }
+
+p {
+    margin-bottom: 1em;
+}
+
+a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+* {
+    box-sizing: border-box; /* Apply border-box to all elements for easier sizing */
+}
+
+/* Common icon styling (if you use a consistent class for icons) */
+.icon {
+    margin-right: 8px;
+    display: inline-block;
+    vertical-align: middle; /* Helps align icons with text */
+}
+
+
+/* --- Utility Classes (Optional, but can be helpful) --- */
+.container {
+  padding: 0 2rem;
+}
+
+.main {
+  min-height: 100vh;
+  padding: 4rem 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Add more global styles or adapt from your prototype's style.css as needed */
+/* For example, button styles, card styles, input styles can be globalized here
+   or defined in their respective component modules/CSS files. */
+
+/* --- Reusable Button Styles (adapted from prototype) --- */
+.btn {
+    padding: 10px 18px;
+    border: 1px solid transparent;
+    border-radius: var(--border-radius);
+    font-family: var(--font-heading);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-align: center;
+    white-space: nowrap;
+}
+.btn-primary {
+    background-color: var(--primary-color);
+    color: var(--text-on-primary);
+}
+.btn-primary:hover {
+    background-color: #3a7bc8; /* Darken primary */
+}
+.btn-secondary {
+    background-color: transparent;
+    color: var(--primary-color);
+    border: 1px solid var(--primary-color);
+}
+.btn-secondary:hover {
+    background-color: rgba(74, 144, 226, 0.1);
+    border-color: #3a7bc8;
+}
+.btn.btn-full-width {
+    width: 100%;
+}
+
+/* --- Reusable Card Styles (adapted from prototype) --- */
+.card {
+    background-color: #FFFFFF;
+    border-radius: var(--border-radius);
+    box-shadow: var(--card-shadow);
+    padding: 20px;
+}
+
+/* --- Reusable Input Field Styles (adapted from prototype) --- */
+.input-field {
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    font-size: 15px;
+    font-family: var(--font-body);
+    background-color: #FFF;
+    width: 100%; 
+    box-sizing: border-box;
+}
+.input-field:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+}
+
+/* Styles for status badges (can be global or component-specific) */
+.status-badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    display: inline-block;
+    white-space: nowrap;
+}
+.status-badge.status-met { background-color: var(--success-green); }
+.status-badge.status-partially-met { background-color: var(--secondary-accent-color); }
+.status-badge.status-gap { background-color: #E74C3C; }
+.status-badge.status-developing { background-color: var(--developing-yellow); color: var(--text-primary); }
+
+/* Add to styles/globals.css */
+.btn-tab.active {
+    background-color: var(--primary-color);
+    color: var(--text-on-primary);
+    border-color: var(--primary-color);
+    font-weight: 600;
+}

@@ -1,0 +1,57 @@
+// File: prisma/schema.prisma
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL") // e.g., "file:./prisma/dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  curricula Curriculum[]
+
+  @@map("users")
+}
+
+model Curriculum {
+  id                 String    @id @default(cuid())
+  name               String
+  originalFileName   String
+  schoolTag          String?
+  filePath           String?
+  uploadedAt         DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  userId             String?
+  user               User?     @relation(fields: [userId], references: [id])
+
+  analysisResults    String?   // Stores JSON data as a string
+
+  actionItems        ActionItem[]
+
+  @@map("curricula")
+}
+
+// Updated ActionItem model
+model ActionItem {
+  id           String    @id @default(cuid())
+  title        String
+  status       String    @default("Not Started") // e.g., "Not Started", "In Progress", "Completed"
+  startDate    DateTime? // Optional start date
+  endDate      DateTime? // Optional end date (can replace dueDate)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  curriculumId String
+  curriculum   Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
+
+  @@map("action_items")
+}

@@ -1,0 +1,71 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js build output
+.next/
+out/
+
+# Next.js cache
+.next/cache/
+
+# Production build folder (if you customize it)
+# build/
+
+# Static exports (if you use `next export`)
+# static/
+
+# Test results
+coverage/
+*.lcov
+
+# Environment variables
+.env*.local
+.env.development.local
+.env.production.local
+.env.test.local
+# Do NOT ignore .env.example or other template files
+
+# Prisma local SQLite database file (and its journal)
+# Add these if you don't want to commit your local dev database.
+# If you want to share a seeded dev database with your team, you might remove these.
+prisma/dev.db
+prisma/dev.db-journal
+# prisma/session.db # If you use a different name
+# prisma/session.db-journal
+
+# Vercel specific
+.vercel/
+
+# Mac OS system files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE / Editor specific
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Other
+*.tgz
+*.zip
