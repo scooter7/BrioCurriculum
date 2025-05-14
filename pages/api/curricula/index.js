@@ -41,10 +41,11 @@ export default async function handler(req, res) {
         multiples: false,
     });
 
+    // Event listeners for debugging
     form.on('error', (err) => console.error('[Formidable Event - error]', err));
     form.on('field', (name, value) => console.log(`[Formidable Event - field] name="${name}", value snippet="${String(value).substring(0, 50)}..."`));
-    form.on('fileBegin', (name, file) => console.log(`[Formidable Event - fileBegin] inputName=${name}, originalFilename=${file.originalFilename}, tempFilepath=${file.filepath}`));
-    form.on('file', (name, file) => console.log(`[Formidable Event - file] inputName=${name}, originalFilename="${file.originalFilename}", size=${file.size}, temp path="${file.filepath}", mimetype="${file.mimetype}"`));
+    form.on('fileBegin', (name, file) => console.log(`[Formidable Event - fileBegin] inputName=${name}, originalFilename=${file?.originalFilename}, tempFilepath=${file?.filepath}`));
+    form.on('file', (name, file) => console.log(`[Formidable Event - file] inputName=${name}, originalFilename="${file?.originalFilename}", size=${file?.size}, temp path="${file?.filepath}", mimetype="${file?.mimetype}"`));
     form.on('aborted', () => console.log('[Formidable Event - aborted]'));
     form.on('end', () => console.log('[Formidable Event - end] Parsing finished.'));
 
@@ -55,13 +56,22 @@ export default async function handler(req, res) {
         
         console.log("[API POST /curricula] Formidable finished parsing (await).");
         console.log("[API POST /curricula] Parsed Fields (await):", JSON.stringify(fields, null, 2));
-        console.log("[API POST /curricula] Parsed Files (await):", JSON.stringify(files, (key, value) => {
-            if (value && typeof value === 'object' && value.filepath && value.originalFilename) {
-                return { originalFilename: value.originalFilename, newFilename: value.newFilename, filepath: value.filepath, mimetype: value.mimetype, size: value.size };
+
+        // Safer logging for the 'files' object
+        const filesLoggable = {};
+        for (const key in files) {
+            if (Object.hasOwnProperty.call(files, key)) {
+                const fileOrArray = files[key];
+                if (Array.isArray(fileOrArray)) {
+                    filesLoggable[key] = fileOrArray.map(f => f && typeof f === 'object' ? { originalFilename: f.originalFilename, filepath: f.filepath, mimetype: f.mimetype, size: f.size, newFilename: f.newFilename } : f);
+                } else if (fileOrArray && typeof fileOrArray === 'object') {
+                    filesLoggable[key] = { originalFilename: fileOrArray.originalFilename, filepath: fileOrArray.filepath, mimetype: fileOrArray.mimetype, size: fileOrArray.size, newFilename: fileOrArray.newFilename };
+                } else {
+                    filesLoggable[key] = fileOrArray;
+                }
             }
-            if (key === 'buffer' && value && value.type === 'Buffer' && value.data) return `Buffer data (${value.data.length} bytes)`;
-            return value;
-        }, 2));
+        }
+        console.log("[API POST /curricula] Parsed Files (await, loggable):", JSON.stringify(filesLoggable, null, 2));
 
         const rawName = fields.name;
         const name = rawName ? (Array.isArray(rawName) ? rawName[0]?.trim() : String(rawName).trim()) : null;
@@ -69,35 +79,32 @@ export default async function handler(req, res) {
         const rawSchoolTag = fields.schoolTag;
         const schoolTag = rawSchoolTag ? (Array.isArray(rawSchoolTag) ? rawSchoolTag[0]?.trim() : String(rawSchoolTag).trim()) : null;
         
-        // Robustly extract the file object
-        const curriculumFileFieldData = files.curriculumFile; // 'curriculumFile' is the key from form input name
+        // Extract file correctly, knowing 'files.curriculumFile' is an array
+        const curriculumFileArray = files.curriculumFile;
         let fileToUpload = null;
 
-        if (curriculumFileFieldData) {
-            if (Array.isArray(curriculumFileFieldData) && curriculumFileFieldData.length > 0) {
-                fileToUpload = curriculumFileFieldData[0]; // Take the first file if it's an array
-                console.log("[API POST /curricula] Extracted file from array.");
-            } else if (curriculumFileFieldData.filepath && curriculumFileFieldData.originalFilename) { 
-                // If it's not an array but looks like a formidable File object directly
-                fileToUpload = curriculumFileFieldData;
-                console.log("[API POST /curricula] Extracted file directly as object.");
-            }
+        if (curriculumFileArray && Array.isArray(curriculumFileArray) && curriculumFileArray.length > 0) {
+            fileToUpload = curriculumFileArray[0];
+            console.log("[API POST /curricula] Extracted file from array. File object:", fileToUpload ? {originalFilename: fileToUpload.originalFilename, filepath: fileToUpload.filepath} : "undefined");
+        } else if (curriculumFileArray && typeof curriculumFileArray === 'object' && curriculumFileArray.filepath) {
+            // Fallback if it's not an array but a single file object (less likely with formidable v3 default for multiples:false for a named input)
+            fileToUpload = curriculumFileArray;
+             console.log("[API POST /curricula] Extracted file directly as object (fallback). File object:", fileToUpload ? {originalFilename: fileToUpload.originalFilename, filepath: fileToUpload.filepath} : "undefined");
         }
         
         tempFilePath = fileToUpload?.filepath;
 
         console.log("[API POST /curricula] Extracted name:", name);
-        console.log("[API POST /curricula] Final fileToUpload object for validation:", fileToUpload ? { originalFilename: fileToUpload.originalFilename, filepath: fileToUpload.filepath, mimetype: fileToUpload.mimetype, size: fileToUpload.size } : "No valid file object extracted for 'curriculumFile'");
+        console.log("[API POST /curricula] Final fileToUpload for validation:", fileToUpload ? { originalFilename: fileToUpload.originalFilename, filepath: fileToUpload.filepath, mimetype: fileToUpload.mimetype, size: fileToUpload.size } : "No valid file object extracted for 'curriculumFile'");
 
         if (!name) {
           console.error("[API POST /curricula] Validation failed: Curriculum name is missing.");
           return res.status(400).json({ error: "Curriculum name is required." });
         }
-        if (!fileToUpload) { // Check if fileToUpload is null/undefined after extraction logic
+        if (!fileToUpload) {
             console.error("[API POST /curricula] Validation failed: No curriculum file was uploaded or processed correctly (fileToUpload is null/undefined).");
             return res.status(400).json({ error: "Curriculum file is required." });
         }
-        // Now validate properties of the extracted fileToUpload object
         if (!fileToUpload.originalFilename || !fileToUpload.filepath || !fileToUpload.mimetype) {
             console.error("[API POST /curricula] File object is invalid (missing originalFilename, filepath, or mimetype). Actual fileToUpload:", fileToUpload);
             return res.status(400).json({ error: "Uploaded file data is incomplete." });
@@ -118,7 +125,7 @@ export default async function handler(req, res) {
             originalFileName: fileToUpload.originalFilename,
             schoolTag: schoolTag || null,
             filePath: blob.url,
-            analysisResults: {},
+            analysisResults: {}, // Store as JSON object
           },
         });
 
