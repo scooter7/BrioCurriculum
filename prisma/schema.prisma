@@ -1,10 +1,10 @@
 // File: prisma/schema.prisma
 
 datasource db {
-  provider          = "postgresql" // Changed for Vercel/Supabase PostgreSQL
-  url               = env("DATABASE_URL")
-  directUrl         = env("DIRECT_URL")        // For migrations
-  shadowDatabaseUrl = env("SHADOW_DATABASE_URL") // Recommended for Prisma with PostgreSQL
+  provider          = "postgresql" // For Vercel Postgres
+  url               = env("DATABASE_URL") // Vercel provides this (pooled)
+  directUrl         = env("DIRECT_URL")   // Vercel provides this (non-pooled, for migrations)
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL") // Vercel provides this (for migrations)
 }
 
 generator client {
@@ -17,9 +17,7 @@ model User {
   name      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
   curricula Curriculum[]
-
   @@map("users")
 }
 
@@ -29,17 +27,12 @@ model Curriculum {
   originalFileName   String
   schoolTag          String?
   filePath           String?   // URL from Vercel Blob
-
-  analysisResults    Json?     // Changed back to Json for PostgreSQL
-
+  analysisResults    Json?     // Use Json type for PostgreSQL (maps to JSONB)
   uploadedAt         DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
-
   userId             String?
   user               User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-
   actionItems        ActionItem[]
-
   @@map("curricula")
 }
 
@@ -51,9 +44,7 @@ model ActionItem {
   endDate      DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
-
   curriculumId String
   curriculum   Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
-
   @@map("action_items")
 }
