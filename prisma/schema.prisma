@@ -1,8 +1,9 @@
 // File: prisma/schema.prisma
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL") // e.g., "file:./prisma/dev.db"
+  provider = "sqlite" // For local development
+  url      = env("DATABASE_URL") // Locally, .env.local points to "file:./prisma/dev.db"
+                               // On Vercel, this will be your PostgreSQL URL
 }
 
 generator client {
@@ -26,27 +27,29 @@ model Curriculum {
   name               String
   originalFileName   String
   schoolTag          String?
-  filePath           String?
+  filePath           String?   // URL from Vercel Blob or local path
+
+  // For SQLite compatibility, store JSON as a String.
+  // Your API logic will handle JSON.stringify() and JSON.parse().
+  analysisResults    String?   
+
   uploadedAt         DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
   userId             String?
-  user               User?     @relation(fields: [userId], references: [id])
-
-  analysisResults    String?   // Stores JSON data as a string
+  user               User?     @relation(fields: [userId], references: [id], onDelete: SetNull) // Or Cascade
 
   actionItems        ActionItem[]
 
   @@map("curricula")
 }
 
-// Updated ActionItem model
 model ActionItem {
   id           String    @id @default(cuid())
   title        String
-  status       String    @default("Not Started") // e.g., "Not Started", "In Progress", "Completed"
-  startDate    DateTime? // Optional start date
-  endDate      DateTime? // Optional end date (can replace dueDate)
+  status       String    @default("Not Started")
+  startDate    DateTime?
+  endDate      DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

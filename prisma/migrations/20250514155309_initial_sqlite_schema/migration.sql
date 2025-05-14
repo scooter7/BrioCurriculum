@@ -14,10 +14,10 @@ CREATE TABLE "curricula" (
     "originalFileName" TEXT NOT NULL,
     "schoolTag" TEXT,
     "filePath" TEXT,
+    "analysisResults" TEXT,
     "uploadedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     "userId" TEXT,
-    "analysisResults" TEXT,
     CONSTRAINT "curricula_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
@@ -25,8 +25,9 @@ CREATE TABLE "curricula" (
 CREATE TABLE "action_items" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "title" TEXT NOT NULL,
-    "dueDate" DATETIME,
-    "completed" BOOLEAN NOT NULL DEFAULT false,
+    "status" TEXT NOT NULL DEFAULT 'Not Started',
+    "startDate" DATETIME,
+    "endDate" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     "curriculumId" TEXT NOT NULL,
